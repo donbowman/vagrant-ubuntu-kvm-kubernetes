@@ -1,0 +1,24 @@
+#!/bin/sh
+set -e
+sudo apt-get update
+sudo apt-get -y install systemd-container
+sudo machinectl set-limit 20G
+sleep 1
+sudo ./kube-spawn create --cni-plugin-dir ./opt/cni/bin
+sudo ./kube-spawn start --cni-plugin-dir ./opt/cni/bin --nodes 4
+sudo snap install kubectl --classic
+sudo snap install helm --classic
+echo export KUBECONFIG=/var/lib/kube-spawn/clusters/default/admin.kubeconfig >> /root/.profile
+echo export KUBECONFIG=/var/lib/kube-spawn/clusters/default/admin.kubeconfig >> /home/vagrant/.profile
+. ~/.profile
+until kubectl get nodes 2>/dev/null; do sleep 1; done
+kubectl create serviceaccount -n kube-system tiller
+kubectl create clusterrolebinding tiller-binding --clusterrole=cluster-admin --serviceaccount kube-system:tiller
+helm init --service-account tiller
+until helm ls 2>/dev/null; do sleep 1; done
+IP=$(sudo machinectl list | awk '/kube-spawn.*worker/ { if (!printed++) {gsub("...$",""); print $NF}}')
+helm install stable/nginx-ingress --name ingress --set rbac.create=true --set controller.service.externalIPs='{$IP}'
+echo
+echo "----------"
+echo "Use <<$IP>> as external-ip"
+
